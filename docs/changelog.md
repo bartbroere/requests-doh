@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### New features
+
+- Added ability to connect to a custom DoH provider by IP address, skipping DNS
+  resolution of the provider itself [#9](https://github.com/mansuf/requests-doh/issues/9)
+    - `DNSOverHTTPSSession` and `DNSOverHTTPSAdapter` now accept `provider_url`,
+      `provider_host` and `verify` parameters
+    - Added `set_dns_provider_url()` to configure a custom provider by URL
+      without registering it with `add_dns_provider()` first
+
+When an IP based `provider_url` is combined with `provider_host`, the connection
+is made straight to the IP (bypassing DNS) while the TLS certificate is still
+verified against the hostname.
+
 ## v1.0.0
 
 In summary, this update introduce some breaking changes to resolver session and update library dependencies.
