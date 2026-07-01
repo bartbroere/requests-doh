@@ -1,3 +1,4 @@
 requests[socks]>=2.32.3
 dnspython[doh]>=2.6.1
-httpx2>=0.26.0
+httpx>=0.26.0
+urllib3>=1.26.8
