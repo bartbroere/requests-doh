@@ -1,7 +1,4 @@
-from urllib.parse import urlsplit, urlunsplit
-
 import httpx
-import dns.inet
 from dns.message import make_query
 from dns.rdatatype import RdataType
 from dns.query import https as query_https
@@ -15,29 +12,24 @@ from .exceptions import (
 
 _resolver_session = None # type: httpx.Client
 _available_providers = {
-    "cloudflare": "https://cloudflare-dns.com/dns-query",
-    "cloudflare-security": "https://security.cloudflare-dns.com/dns-query",
-    "cloudflare-family": "https://family.cloudflare-dns.com/dns-query",
-    "opendns": "https://doh.opendns.com/dns-query",
-    "opendns-family": "https://doh.familyshield.opendns.com/dns-query",
-    "adguard": "https://dns.adguard.com/dns-query",
-    "adguard-family": "https://dns-family.adguard.com/dns-query",
-    "adguard-unfiltered": "https://unfiltered.adguard-dns.com/dns-query",
-    "quad9": "https://dns.quad9.net/dns-query",
-    "quad9-unsecured": "https://dns10.quad9.net/dns-query",
-    "google": "https://dns.google/dns-query"
+    "cloudflare": {"url": "https://cloudflare-dns.com/dns-query", "bootstrap_address": None, "verify": True},
+    "cloudflare-security": {"url": "https://security.cloudflare-dns.com/dns-query", "bootstrap_address": None, "verify": True},
+    "cloudflare-family": {"url": "https://family.cloudflare-dns.com/dns-query", "bootstrap_address": None, "verify": True},
+    "opendns": {"url": "https://doh.opendns.com/dns-query", "bootstrap_address": None, "verify": True},
+    "opendns-family": {"url": "https://doh.familyshield.opendns.com/dns-query", "bootstrap_address": None, "verify": True},
+    "adguard": {"url": "https://dns.adguard.com/dns-query", "bootstrap_address": None, "verify": True},
+    "adguard-family": {"url": "https://dns-family.adguard.com/dns-query", "bootstrap_address": None, "verify": True},
+    "adguard-unfiltered": {"url": "https://unfiltered.adguard-dns.com/dns-query", "bootstrap_address": None, "verify": True},
+    "quad9": {"url": "https://dns.quad9.net/dns-query", "bootstrap_address": None, "verify": True},
+    "quad9-unsecured": {"url": "https://dns10.quad9.net/dns-query", "bootstrap_address": None, "verify": True},
+    "google": {"url": "https://dns.google/dns-query", "bootstrap_address": None, "verify": True}
 }
 # Default provider
 _provider = _available_providers["cloudflare"]
-# IP address used to connect to the active provider directly, bypassing DNS
-# resolution of the provider hostname. ``None`` means resolve normally.
-_provider_bootstrap_address = None
-# TLS certificate verification for the active provider. See ``set_dns_provider_url``.
-_provider_verify = True
 
 __all__ = (
     'set_resolver_session', 'get_resolver_session',
-    'set_dns_provider', 'set_dns_provider_url', 'get_dns_provider',
+    'set_dns_provider', 'get_dns_provider',
     'add_dns_provider', 'remove_dns_provider',
     'get_all_dns_provider', 'resolve_dns'
 )
@@ -84,80 +76,12 @@ def set_dns_provider(provider):
     DoHProviderNotExist
         Invalid DoH provider
     """
-    global _provider, _provider_bootstrap_address, _provider_verify
+    global _provider
 
     if provider not in _available_providers.keys():
         raise DoHProviderNotExist(f"invalid DoH provider, must be one of '{list(_available_providers.keys())}'")
 
     _provider = _available_providers[provider]
-    _provider_bootstrap_address = None
-    _provider_verify = True
-
-def _build_provider_url(url, host=None):
-    """Return a ``(url, bootstrap_address)`` tuple for a DoH endpoint.
-
-    If ``host`` is given and ``url`` points to an IP address, the returned URL
-    will use ``host`` (so TLS SNI and certificate verification are done against
-    the hostname) while the IP address is returned as the bootstrap address to
-    connect to directly, bypassing DNS resolution of the provider hostname.
-    """
-    if host is None:
-        return url, None
-
-    parsed = urlsplit(url)
-    bootstrap = None
-    if parsed.hostname is not None and dns.inet.is_address(parsed.hostname):
-        bootstrap = parsed.hostname
-
-    netloc = host
-    if parsed.port is not None:
-        netloc = f"{host}:{parsed.port}"
-
-    new_url = urlunsplit(
-        (parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment)
-    )
-    return new_url, bootstrap
-
-def set_dns_provider_url(url, host=None, verify=True):
-    """Set a custom DoH provider by its URL directly, without registering it
-    with :func:`add_dns_provider` first.
-
-    This makes it possible to skip DNS resolution entirely, including resolving
-    the IP address of the DoH provider itself. Pass an IP address in ``url``
-    together with ``host`` (the provider hostname) to connect straight to the IP
-    while still verifying the TLS certificate against the hostname.
-
-    For example:
-
-    .. code-block:: python3
-
-        from requests_doh import DNSOverHTTPSSession, set_dns_provider_url
-
-        # Connect to Cloudflare by IP, verifying the certificate against
-        # ``cloudflare-dns.com``
-        set_dns_provider_url("https://104.16.249.249/dns-query", host="cloudflare-dns.com")
-
-        session = DNSOverHTTPSSession()
-        r = session.get("https://example.com")
-        print(r.status_code)
-
-    Parameters
-    -----------
-    url: :class:`str`
-        Full URL / endpoint for the DoH provider. May contain an IP address.
-    host: Optional[:class:`str`]
-        The provider hostname. If given and ``url`` contains an IP address, the
-        connection is made to that IP (bypassing DNS) while TLS SNI and
-        certificate verification use ``host``.
-    verify: Optional[Union[:class:`bool`, :class:`str`]]
-        TLS certificate verification. ``True`` (the default) verifies against
-        the default CA bundle, ``False`` disables verification, and a ``str``
-        specifies a path to a CA certificate file or directory.
-    """
-    global _provider, _provider_bootstrap_address, _provider_verify
-
-    _provider, _provider_bootstrap_address = _build_provider_url(url, host)
-    _provider_verify = verify
 
 def get_dns_provider():
     """
@@ -166,11 +90,37 @@ def get_dns_provider():
     str
         Return current DoH provider
     """
-    return _provider
+    if _provider is None:
+        return None
 
-def add_dns_provider(name, address, switch=False):
+    return _provider["url"]
+
+def add_dns_provider(name, address, switch=False, bootstrap_address=None, verify=True):
     """Add a DoH provider
-    
+
+    Passing ``bootstrap_address`` makes it possible to skip DNS resolution
+    entirely, including resolving the IP address of the DoH provider itself.
+    The connection is made straight to that IP, while TLS SNI and certificate
+    verification still use the hostname from ``address``.
+
+    For example:
+
+    .. code-block:: python3
+
+        from requests_doh import DNSOverHTTPSSession, add_dns_provider
+
+        # Connect to Cloudflare by IP, verifying the certificate against
+        # ``cloudflare-dns.com``
+        add_dns_provider(
+            "cloudflare-by-ip",
+            "https://cloudflare-dns.com/dns-query",
+            bootstrap_address="104.16.249.249"
+        )
+
+        session = DNSOverHTTPSSession("cloudflare-by-ip")
+        r = session.get("https://example.com")
+        print(r.status_code)
+
     Parameters
     -----------
     name: :class:`str`
@@ -178,10 +128,21 @@ def add_dns_provider(name, address, switch=False):
     address: :class:`str`
         Full URL / endpoint for DoH provider
     switch: Optional[:class:`bool`]
-        If ``True``, the DoH provider will automatically switch to 
+        If ``True``, the DoH provider will automatically switch to
         newly created DoH provider
+    bootstrap_address: Optional[:class:`str`]
+        IP address used to connect to the DoH provider directly, bypassing
+        DNS resolution of the provider hostname
+    verify: Optional[Union[:class:`bool`, :class:`str`]]
+        TLS certificate verification. ``True`` (the default) verifies against
+        the default CA bundle, ``False`` disables verification, and a ``str``
+        specifies a path to a CA certificate file or directory.
     """
-    _available_providers[name] = address
+    _available_providers[name] = {
+        "url": address,
+        "bootstrap_address": bootstrap_address,
+        "verify": verify
+    }
 
     if switch:
         set_dns_provider(name)
@@ -263,7 +224,7 @@ def remove_dns_provider(name, fallback=None):
     DoHProviderNotExist
         DoH provider is not exist in list of available DoH providers
     """
-    global _provider, _provider_bootstrap_address, _provider_verify
+    global _provider
 
     try:
         _available_providers.pop(name)
@@ -276,8 +237,6 @@ def remove_dns_provider(name, fallback=None):
         set_dns_provider(fallback)
     else:
         _provider = None
-        _provider_bootstrap_address = None
-        _provider_verify = True
 
 def get_all_dns_provider():
     """
@@ -311,7 +270,7 @@ def resolve_dns(host):
     if _provider is None:
         raise NoDoHProvider("There is no active DoH provider")
 
-    if _provider_bootstrap_address is not None or _provider_verify is not True:
+    if _provider["bootstrap_address"] is not None or _provider["verify"] is not True:
         # dnspython ignores ``bootstrap_address`` and ``verify`` when an existing
         # session is passed in, so let it build its own client with those applied.
         session = None
@@ -328,11 +287,11 @@ def resolve_dns(host):
     def query(rdatatype):
         return _resolve(
             session,
-            _provider,
+            _provider["url"],
             host,
             rdatatype,
-            bootstrap_address=_provider_bootstrap_address,
-            verify=_provider_verify,
+            bootstrap_address=_provider["bootstrap_address"],
+            verify=_provider["verify"],
         )
 
     # Query A type
@@ -347,7 +306,7 @@ def resolve_dns(host):
 
     if not answers:
         raise DNSQueryFailed(
-            f"DNS server {_provider} returned empty results from host '{host}'"
+            f"DNS server {_provider['url']} returned empty results from host '{host}'"
         )
 
     return list(answers)

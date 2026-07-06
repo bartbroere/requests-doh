@@ -72,15 +72,21 @@ r = session.get("https://example.com")
 print(r.status_code)
 ```
 
-The same parameters are available on `DNSOverHTTPSAdapter`, or you can configure
-it directly with `set_dns_provider_url`:
+The same parameters are available on `DNSOverHTTPSAdapter`, or you can register
+a provider with a bootstrap address yourself with `add_dns_provider`:
 
 ```python
-from requests_doh import DNSOverHTTPSSession, set_dns_provider_url
+from requests_doh import DNSOverHTTPSSession, add_dns_provider
 
-set_dns_provider_url("https://104.16.249.249/dns-query", host="cloudflare-dns.com")
+# Connect to Cloudflare by IP, verifying the certificate against
+# `cloudflare-dns.com`
+add_dns_provider(
+    "cloudflare-by-ip",
+    "https://cloudflare-dns.com/dns-query",
+    bootstrap_address="104.16.249.249",
+)
 
-session = DNSOverHTTPSSession()
+session = DNSOverHTTPSSession("cloudflare-by-ip")
 r = session.get("https://example.com")
 print(r.status_code)
 ```

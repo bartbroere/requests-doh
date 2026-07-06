@@ -29,8 +29,6 @@ DoH (DNS-over-HTTPS) Provider
 
 .. autofunction:: set_dns_provider
 
-.. autofunction:: set_dns_provider_url
-
 .. autofunction:: get_dns_provider
 
 .. autofunction:: get_all_dns_provider
